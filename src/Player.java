@@ -42,6 +42,7 @@ public class Player {
     private boolean playerEnabled = false;
     private boolean playerPaused = true;
     private boolean song_is_playing = false;
+    private boolean exit_song = false;
     private Song currentSong;
     private int currentFrame = 0;
     private int newFrame;
@@ -49,7 +50,7 @@ public class Player {
     String[][] playerQueue = new String[0][7];
     Thread Song_Playing;
     private final Lock lock = new ReentrantLock();
-    private int song_time;
+    private int current_time;
     private int tot_time;
     Song[] added_songs = new Song[0];
 
@@ -69,7 +70,7 @@ public class Player {
         ActionListener buttonListenerPlayNow = e -> start(window.getSelectedSong());
         ActionListener buttonListenerShuffle = e -> empty();
         ActionListener buttonListenerPrevious = e -> previous();
-        ActionListener buttonListenerPlayPause = e -> empty();
+        ActionListener buttonListenerPlayPause = e -> Play_Pause();
         ActionListener buttonListenerStop = e -> stop();
         ActionListener buttonListenerNext = e -> next();
         ActionListener buttonListenerRepeat = e -> empty();
@@ -81,12 +82,10 @@ public class Player {
 
             @Override
             public void mouseReleased(MouseEvent e){
-                //click_up(); must create this
             }
 
             @Override
             public void mousePressed(MouseEvent e){
-                //click_down(); must create this
             }
 
             @Override
@@ -99,7 +98,6 @@ public class Player {
         MouseMotionListener scrubberListenerMotion = new MouseMotionListener(){
             @Override
             public void mouseDragged(MouseEvent e) {
-                //drag(); must create this
             }
 
             @Override
@@ -184,11 +182,6 @@ public class Player {
             Song new_song = null;
             try {
                 new_song = window.getNewSong();
-                System.out.println(new_song.getMsLength());
-                System.out.println(new_song.getStrLength());
-                System.out.println(new_song.getMsPerFrame());
-                System.out.println(new_song.getFileSize());
-                System.out.println(new_song.getNumFrames());
                 String[] info = new_song.getDisplayInfo();
                 lock.lock();
                 // vreifica se new_song já foi adicionado anteriormente
@@ -210,11 +203,20 @@ public class Player {
                             is_in_added_songs = true;
                             break;
                         }
+                        System.out.println(i);
+                        System.out.println(is_in_added_songs);
                     }
                     if (!is_in_added_songs){
-                        added_songs = new Song[added_songs.length+1];
-                        //System.out.println(added_songs.length);
-                        added_songs[added_songs.length - 1] = new_song;
+                        Song[] new_song_array = new Song[added_songs.length+1];
+                        for (int i = 0; i < added_songs.length; i++) {
+                            new_song_array[i] = added_songs[i];
+                        }
+                        System.out.println(added_songs.length);
+                        new_song_array[added_songs.length] = new_song;
+                        added_songs = new_song_array;
+                    }
+                    for (int i = 0; i < added_songs.length; i++){
+                        System.out.println(added_songs[i]);
                     }
                     // adição à queue
                     String[][] newQueue = new String[playerQueue.length+1][7];
@@ -244,7 +246,7 @@ public class Player {
         Thread remove = new Thread(() -> {
             lock.lock();
             String[][] new_queue = new String[playerQueue.length - 1][7];
-            //String path = window.getSelectedSong();
+
             int idx = 0;
             for (int i = 0; i < playerQueue.length - 1; i++) {
                 if (Objects.equals(filePath, playerQueue[idx][5])) {
@@ -252,6 +254,11 @@ public class Player {
                 }
                 new_queue[i] = playerQueue[idx];
                 idx++;
+            }
+            if (Objects.equals(filePath, currentSong.getFilePath())){
+                exit_song = true;
+                window.resetMiniPlayer();
+                window.setTime(0,0);
             }
             playerQueue = new_queue;
             window.updateQueueList(new_queue);
@@ -272,12 +279,9 @@ public class Player {
             try {
                 this.lock.lock();
                 // verificar se há uma música tocando para substitui-la pela nova
-                /*
-                if (this.Song_Playing != null && !this.Song_Playing.isInterrupted()){
-                    song_is_playing = false;
-                    this.Song_Playing.interrupt();
-                    this.Song_Playing = null;
-                }*/
+                if (Song_Playing != null){
+                    exit_song = true;
+                }
                 // pegar as informações na queue
                 int idx = 0;
                 String[] playing = new String[7];
@@ -289,6 +293,11 @@ public class Player {
                 }
                 // pegar as informações na Song_list
                 currentSong = fetch_in_song_array(filePath);
+                totFrames = currentSong.getNumFrames();
+                newFrame = 0;
+                tot_time = totFrames*Math.round(currentSong.getMsPerFrame()); //////////////////////////////
+                current_time = 0;                                    /////////////////////////////
+                window.setTime(current_time, tot_time);
                 /*
                 removeFromQueue(filePath);
 
@@ -306,8 +315,7 @@ public class Player {
                 window.updateQueueList(new_queue);
                 */
                 window.updatePlayingSongInfo(playing[0], playing[1], playing[2]);
-                //song_time = Integer.parseInt(playing[3]);
-                //tot_time = Integer.parseInt(playing[3]);
+
                 // preparar para tocar
                 File file = new File(filePath);
                 int maxFrames = new Mp3File(file).getFrameCount();
@@ -316,8 +324,11 @@ public class Player {
                 bitstream = new Bitstream(new BufferedInputStream(new FileInputStream(file)));
 
                 song_is_playing = true;
+                playerPaused = false;
+                exit_song = false;
                 window.setEnabledScrubber(song_is_playing);
-
+                window.setEnabledPlayPauseButton(song_is_playing);
+                window.updatePlayPauseButtonIcon(playerPaused);
                 // TOCAR A MUSICA
 
                 Song_Playing = new Thread(new Playtask());
@@ -335,7 +346,15 @@ public class Player {
     public void stop() {
     }
 
-    public void pause() {
+    public void Play_Pause() {
+        if (song_is_playing && !playerPaused){
+            playerPaused = true;
+        }
+        else if (song_is_playing && playerPaused){
+            playerPaused = false;
+
+        }
+        window.updatePlayPauseButtonIcon(playerPaused);
     }
 
     public void resume() {
@@ -371,7 +390,23 @@ public class Player {
 
             try{
                 while (song_is_playing) {
+                    if (exit_song){
+                        break;
+                    }
                     song_is_playing = playNextFrame();
+                    window.setTime(current_time, tot_time); ///////////////////////////////
+                    if (newFrame < totFrames){
+                        newFrame++;                         //////////////////////////////
+                    }
+                    current_time = newFrame*Math.round(currentSong.getMsPerFrame());
+
+                    while (playerPaused){
+                        try {
+                            sleep(1);
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
                 }
             } catch (JavaLayerException e) {
                 e.printStackTrace();
