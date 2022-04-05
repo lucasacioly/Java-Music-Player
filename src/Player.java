@@ -54,6 +54,10 @@ public class Player {
     private int tot_time;
     Song[] added_songs = new Song[0];
 
+    private int current_id;
+
+    private final Condition song_is_paused_condition = lock.newCondition();
+
     public Player() {
 
 
@@ -247,6 +251,7 @@ public class Player {
             lock.lock();
             String[][] new_queue = new String[playerQueue.length - 1][7];
 
+            // remover da fila de músicas
             int idx = 0;
             for (int i = 0; i < playerQueue.length - 1; i++) {
                 if (Objects.equals(filePath, playerQueue[idx][5])) {
@@ -255,10 +260,15 @@ public class Player {
                 new_queue[i] = playerQueue[idx];
                 idx++;
             }
+            // se o objeto removido estava tocando, interrompe a reprodução e reseta o miniplayer
             if (Objects.equals(filePath, currentSong.getFilePath())){
-                exit_song = true;
-                window.resetMiniPlayer();
-                window.setTime(0,0);
+                try{exit_song = true;
+                    Thread.sleep(500);
+                    window.resetMiniPlayer();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+
             }
             playerQueue = new_queue;
             window.updateQueueList(new_queue);
@@ -281,15 +291,17 @@ public class Player {
                 // verificar se há uma música tocando para substitui-la pela nova
                 if (Song_Playing != null){
                     exit_song = true;
+                    Thread.sleep(500);
                 }
                 // pegar as informações na queue
-                int idx = 0;
+
                 String[] playing = new String[7];
                 for (int i = 0; i < playerQueue.length; i++) {
-                    if (Objects.equals(filePath, playerQueue[idx][5])) {
-                        playing = playerQueue[idx];
+                    if (Objects.equals(filePath, playerQueue[i][5])) {
+                        playing = playerQueue[i];
+                        current_id = i;
+                        break;
                     }
-                    idx++;
                 }
                 // pegar as informações na Song_list
                 currentSong = fetch_in_song_array(filePath);
@@ -318,7 +330,6 @@ public class Player {
 
                 // preparar para tocar
                 File file = new File(filePath);
-                int maxFrames = new Mp3File(file).getFrameCount();
                 device = FactoryRegistry.systemRegistry().createAudioDevice();
                 device.open(decoder = new Decoder());
                 bitstream = new Bitstream(new BufferedInputStream(new FileInputStream(file)));
@@ -329,14 +340,17 @@ public class Player {
                 window.setEnabledScrubber(song_is_playing);
                 window.setEnabledPlayPauseButton(song_is_playing);
                 window.updatePlayPauseButtonIcon(playerPaused);
+                window.setEnabledStopButton(song_is_playing);
+                window.setEnabledNextButton(song_is_playing);
+                window.setEnabledPreviousButton(song_is_playing);
                 // TOCAR A MUSICA
 
                 Song_Playing = new Thread(new Playtask());
                 Song_Playing.start();
 
-            } catch (IOException | InvalidDataException | UnsupportedTagException | JavaLayerException e) {
+            } catch (IOException | JavaLayerException | InterruptedException e) {
                 e.printStackTrace();
-            }finally {
+            } finally {
                 this.lock.unlock();
             }
         });
@@ -344,6 +358,18 @@ public class Player {
     }
 
     public void stop() {
+        Thread stop = new Thread(() -> {
+            try{
+                if (Song_Playing != null){
+                    exit_song = true;
+                    Thread.sleep(500);
+                    window.resetMiniPlayer();
+                }
+            }catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        });
+        stop.start();
     }
 
     public void Play_Pause() {
@@ -358,12 +384,19 @@ public class Player {
     }
 
     public void resume() {
+
     }
 
     public void next() {
+        if (current_id + 1 < playerQueue.length){
+            start(playerQueue[current_id + 1][5]);
+        }
     }
 
     public void previous() {
+        if (current_id - 1 > -1){
+            start(playerQueue[current_id - 1][5]);
+        }
     }
 
     public void empty() {
@@ -391,27 +424,26 @@ public class Player {
             try{
                 while (song_is_playing) {
                     if (exit_song){
+                        Thread.sleep(300);
                         break;
                     }
                     song_is_playing = playNextFrame();
                     window.setTime(current_time, tot_time); ///////////////////////////////
+                    
                     if (newFrame < totFrames){
                         newFrame++;                         //////////////////////////////
                     }
                     current_time = newFrame*Math.round(currentSong.getMsPerFrame());
 
                     while (playerPaused){
-                        try {
-                            sleep(1);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
+                        Thread.sleep(1);
                     }
+
                 }
-            } catch (JavaLayerException e) {
+            } catch (JavaLayerException | InterruptedException e) {
                 e.printStackTrace();
             }
-
+            this.interrupt();
         }
 
     }
