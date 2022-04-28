@@ -16,9 +16,11 @@ import java.io.*;
 import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 
+import java.util.List;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class Player {
 
@@ -43,6 +45,7 @@ public class Player {
     private boolean playerPaused = true;
     private boolean song_is_playing = false;
     private boolean exit_song = false;
+    private boolean scrubber_pressed = false;
     private Song currentSong;
     private int currentFrame = 0;
     private int newFrame;
@@ -53,10 +56,11 @@ public class Player {
     private int current_time;
     private int tot_time;
     Song[] added_songs = new Song[0];
+    private int scrubbed_frame;
+    private List<String> randomlist;
+
 
     private int current_id;
-
-    private final Condition song_is_paused_condition = lock.newCondition();
 
     public Player() {
 
@@ -71,26 +75,23 @@ public class Player {
                 ex.printStackTrace();
             }
         };
-        ActionListener buttonListenerPlayNow = e -> start(window.getSelectedSong());
-        ActionListener buttonListenerShuffle = e -> empty();
+        ActionListener buttonListenerPlayNow = e -> start_song(window.getSelectedSong());
+        ActionListener buttonListenerShuffle = e -> shuffle_enabler();
         ActionListener buttonListenerPrevious = e -> previous();
         ActionListener buttonListenerPlayPause = e -> Play_Pause();
         ActionListener buttonListenerStop = e -> stop();
         ActionListener buttonListenerNext = e -> next();
-        ActionListener buttonListenerRepeat = e -> empty();
+        ActionListener buttonListenerRepeat = e -> repeat_enabler();
 
         MouseListener scrubberListenerClick = new MouseListener(){
             @Override
-            public void mouseClicked(MouseEvent e) {
-            }
+            public void mouseClicked(MouseEvent e) {}
 
             @Override
-            public void mouseReleased(MouseEvent e){
-            }
+            public void mouseReleased(MouseEvent e){release();}
 
             @Override
-            public void mousePressed(MouseEvent e){
-            }
+            public void mousePressed(MouseEvent e){press();}
 
             @Override
             public void mouseEntered(MouseEvent e){}
@@ -101,13 +102,10 @@ public class Player {
 
         MouseMotionListener scrubberListenerMotion = new MouseMotionListener(){
             @Override
-            public void mouseDragged(MouseEvent e) {
-            }
+            public void mouseDragged(MouseEvent e){drag();}
 
             @Override
-            public void mouseMoved(MouseEvent e){
-
-            }
+            public void mouseMoved(MouseEvent e){}
 
         };
 
@@ -224,10 +222,14 @@ public class Player {
                     }
                     // adição à queue
                     String[][] newQueue = new String[playerQueue.length+1][7];
+                    String[] randomArray = new String[newQueue.length];
                     for (int i = 0; i < playerQueue.length; i++){
                         newQueue[i] = playerQueue[i];
+                        randomArray[i] = playerQueue[i][5];
                     }
                     newQueue[playerQueue.length] = info;
+                    randomArray[playerQueue.length] = info[5];
+                    randomlist = Arrays.asList(randomArray);
 
                     playerQueue = newQueue;
                     window.updateQueueList(newQueue);
@@ -261,9 +263,9 @@ public class Player {
                 idx++;
             }
             // se o objeto removido estava tocando, interrompe a reprodução e reseta o miniplayer
-            if (Objects.equals(filePath, currentSong.getFilePath())){
+            if (currentSong != null && Objects.equals(filePath, currentSong.getFilePath())){
                 try{exit_song = true;
-                    Thread.sleep(500);
+                    Thread.sleep(300);
                     window.resetMiniPlayer();
                 } catch (InterruptedException e) {
                     e.printStackTrace();
@@ -284,15 +286,18 @@ public class Player {
     //</editor-fold>
 
     //<editor-fold desc="Controls">
-    public void start(String filePath) {
-        Thread start = new Thread(() -> {
+    public void start_song(String filePath) {
+        Thread start_song = new Thread(() -> {
             try {
                 this.lock.lock();
                 // verificar se há uma música tocando para substitui-la pela nova
-                if (Song_Playing != null){
+                if (Song_Playing != null) {
                     exit_song = true;
-                    Thread.sleep(500);
+                    Thread.sleep(50);
+                    playerPaused = false;
+                    Thread.sleep(300);
                 }
+
                 // pegar as informações na queue
 
                 String[] playing = new String[7];
@@ -306,26 +311,12 @@ public class Player {
                 // pegar as informações na Song_list
                 currentSong = fetch_in_song_array(filePath);
                 totFrames = currentSong.getNumFrames();
+                //System.out.println(totFrames);
                 newFrame = 0;
                 tot_time = totFrames*Math.round(currentSong.getMsPerFrame()); //////////////////////////////
                 current_time = 0;                                    /////////////////////////////
                 window.setTime(current_time, tot_time);
-                /*
-                removeFromQueue(filePath);
 
-                String[][] new_queue = new String[playerQueue.length + 1][7];
-                new_queue[0] = playing;
-                int new_queue_idx = 1;
-                int current_queue_idx = 0;
-
-                for (int i = 0; i < playerQueue.length; i++) {
-                    new_queue[new_queue_idx] = playerQueue[current_queue_idx];
-                    new_queue_idx++;
-                    current_queue_idx++;
-                }
-                playerQueue = new_queue;
-                window.updateQueueList(new_queue);
-                */
                 window.updatePlayingSongInfo(playing[0], playing[1], playing[2]);
 
                 // preparar para tocar
@@ -337,6 +328,7 @@ public class Player {
                 song_is_playing = true;
                 playerPaused = false;
                 exit_song = false;
+
                 window.setEnabledScrubber(song_is_playing);
                 window.setEnabledPlayPauseButton(song_is_playing);
                 window.updatePlayPauseButtonIcon(playerPaused);
@@ -354,15 +346,16 @@ public class Player {
                 this.lock.unlock();
             }
         });
-        start.start();
+        start_song.start();
     }
 
     public void stop() {
         Thread stop = new Thread(() -> {
             try{
                 if (Song_Playing != null){
+                    Thread.sleep(200);
                     exit_song = true;
-                    Thread.sleep(500);
+                    Thread.sleep(200);
                     window.resetMiniPlayer();
                 }
             }catch (InterruptedException e) {
@@ -383,20 +376,20 @@ public class Player {
         window.updatePlayPauseButtonIcon(playerPaused);
     }
 
-    public void resume() {
-
-    }
-
     public void next() {
+        //lock.lock();
         if (current_id + 1 < playerQueue.length){
-            start(playerQueue[current_id + 1][5]);
+            start_song(playerQueue[current_id + 1][5]);
         }
+        //lock.unlock();
     }
 
     public void previous() {
+        //lock.lock();
         if (current_id - 1 > -1){
-            start(playerQueue[current_id - 1][5]);
+            start_song(playerQueue[current_id - 1][5]);
         }
+        //lock.unlock();
     }
 
     public void empty() {
@@ -416,30 +409,190 @@ public class Player {
         return null;
     }
 
+    // --------------------- Solving progress sliding-------------------- //
+
+    private void press(){
+
+        Thread press = new Thread(()->{
+            try {
+                this.lock.lock();
+                scrubber_pressed = true;
+
+                if (song_is_playing && currentSong != null) {
+                    current_time = window.getScrubberValue();
+                    scrubbed_frame = current_time / Math.round(currentSong.getMsPerFrame());
+                }
+
+                this.lock.unlock();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
+
+        press.start();
+    }
+
+    private void drag(){
+        Thread drag = new Thread(() -> {
+            this.lock.lock();
+            if (song_is_playing && currentSong != null){
+                current_time = window.getScrubberValue();
+                scrubbed_frame = current_time/Math.round(currentSong.getMsPerFrame());
+                window.setTime(current_time, tot_time);
+                //System.out.println(frame); // is returning song's frame in current scrubber position
+            }
+            this.lock.unlock();
+        });
+        drag.start();
+    }
+
+    private void release(){
+
+        Thread release = new Thread(() -> {
+
+            try {
+                this.lock.lock();
+                current_time = window.getScrubberValue();
+                currentFrame = 0;
+                //System.out.println(current_time);
+                scrubbed_frame = current_time/Math.round(currentSong.getMsPerFrame());
+                newFrame = scrubbed_frame;
+
+                boolean paused = playerPaused;
+
+                // verificar se há uma música tocando para substitui-la pela nova
+                if (Song_Playing != null) {
+                    exit_song = true;
+                    Thread.sleep(50);
+                    playerPaused = false;
+                    Thread.sleep(300);
+                }
+
+                playerPaused = paused;
+
+                // pegar as informações na Song_list
+                totFrames = currentSong.getNumFrames();
+                //System.out.println(totFrames);
+
+                tot_time = totFrames*Math.round(currentSong.getMsPerFrame()); //////////////////////////////
+
+                window.setTime(current_time, tot_time);
+
+
+                // preparar para tocar
+                File file = new File(currentSong.getFilePath());
+                device = FactoryRegistry.systemRegistry().createAudioDevice();
+                device.open(decoder = new Decoder());
+                bitstream = new Bitstream(new BufferedInputStream(new FileInputStream(file)));
+
+                song_is_playing = true;
+                exit_song = false;
+
+                window.setEnabledScrubber(song_is_playing);
+                window.setEnabledPlayPauseButton(song_is_playing);
+                window.updatePlayPauseButtonIcon(playerPaused);
+                window.setEnabledStopButton(song_is_playing);
+                window.setEnabledNextButton(song_is_playing);
+                window.setEnabledPreviousButton(song_is_playing);
+                // TOCAR A MUSICA
+
+                Thread.sleep(100);
+
+                Song_Playing = new Thread(new Playtask());
+                Song_Playing.start();
+
+                scrubber_pressed = false;
+
+                this.lock.unlock();
+
+            } catch (InterruptedException | FileNotFoundException | JavaLayerException e) {
+                e.printStackTrace();
+            }
+        });
+        release.start();
+    }
+
+    // ----------------------------------------------------------------  //
+
+
+    // ------------------ Solving Repeat music -----------------------  //
+    private void repeat_enabler(){
+        repeat = !repeat;
+    }
+
+    // ---------------------------------------------------------------  //
+
+
+    // ----------------- Solving random selection --------------------  //
+    private void shuffle_enabler(){
+        shuffle = !shuffle;
+        System.out.println(shuffle);
+        if (shuffle){
+            Collections.shuffle(randomlist);
+        }
+    }
+    // ---------------------------------------------------------------  //
+
     // Play task
     class Playtask extends Thread {
         @Override
         public void run(){
 
             try{
+                System.out.println(current_time);
+                System.out.println("to frame: " + scrubbed_frame);
+                skipToFrame(scrubbed_frame);
+                System.out.println("current frame: " + currentFrame);
+                System.out.println("newFrame: " + newFrame);
+                System.out.println("player is paused: " + playerPaused);
                 while (song_is_playing) {
-                    if (exit_song){
-                        Thread.sleep(300);
-                        break;
-                    }
-                    song_is_playing = playNextFrame();
-                    window.setTime(current_time, tot_time); ///////////////////////////////
-                    
-                    if (newFrame < totFrames){
-                        newFrame++;                         //////////////////////////////
-                    }
-                    current_time = newFrame*Math.round(currentSong.getMsPerFrame());
 
                     while (playerPaused){
-                        Thread.sleep(1);
+                        Thread.sleep(10);
+                        if(exit_song){
+                            break;
+                        }
+                    }
+
+                    if (exit_song){
+                        Thread.sleep(200);
+                        break;
+                    }
+
+                    song_is_playing = playNextFrame();
+                    window.setTime(current_time, tot_time); ///////////////////////////////
+
+                    if (newFrame <= totFrames){
+                        newFrame++;                         /////////////////////////////
+                    }
+
+                    if (!scrubber_pressed) {
+                        current_time = newFrame * Math.round(currentSong.getMsPerFrame());
                     }
 
                 }
+                if (!exit_song){
+                    if (repeat){
+                        start_song(currentSong.getFilePath());
+                    }
+                    else{
+                        if (shuffle){
+                            int random_index = ThreadLocalRandom.current().nextInt(0, playerQueue.length);
+                            System.out.println("random: " + random_index);
+                            start_song(playerQueue[random_index][5]);
+                        }
+                        else {
+                            if (Objects.equals(currentSong.getFilePath(), playerQueue[playerQueue.length-1][5])) {
+                                window.resetMiniPlayer();
+                            }
+                            else{
+                                next();
+                            }
+                        }
+                    }
+
+                }
+
             } catch (JavaLayerException | InterruptedException e) {
                 e.printStackTrace();
             }
