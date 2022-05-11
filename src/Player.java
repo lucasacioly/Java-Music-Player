@@ -58,6 +58,7 @@ public class Player {
     Song[] added_songs = new Song[0];
     private int scrubbed_frame;
     private List<String> randomlist;
+    private int rand_index = 0;
 
 
     private int current_id;
@@ -378,7 +379,11 @@ public class Player {
 
     public void next() {
         //lock.lock();
-        if (current_id + 1 < playerQueue.length){
+        if (shuffle && rand_index + 1 < randomlist.size()){
+            start_song(randomlist.get(rand_index + 1));
+            rand_index++;
+        }
+        else if (!shuffle && current_id + 1 < playerQueue.length){
             start_song(playerQueue[current_id + 1][5]);
         }
         //lock.unlock();
@@ -386,7 +391,11 @@ public class Player {
 
     public void previous() {
         //lock.lock();
-        if (current_id - 1 > -1){
+        if (shuffle && rand_index - 1 > -1){
+            start_song(randomlist.get(rand_index - 1));
+            rand_index--;
+        }
+        else if (!shuffle && current_id - 1 > -1){
             start_song(playerQueue[current_id - 1][5]);
         }
         //lock.unlock();
@@ -526,6 +535,7 @@ public class Player {
     // ----------------- Solving random selection --------------------  //
     private void shuffle_enabler(){
         shuffle = !shuffle;
+        rand_index = 0;
         System.out.println(shuffle);
         if (shuffle){
             Collections.shuffle(randomlist);
@@ -577,9 +587,15 @@ public class Player {
                     }
                     else{
                         if (shuffle){
-                            int random_index = ThreadLocalRandom.current().nextInt(0, playerQueue.length);
-                            System.out.println("random: " + random_index);
-                            start_song(playerQueue[random_index][5]);
+                            //int random_index = ThreadLocalRandom.current().nextInt(0, playerQueue.length);
+                            //System.out.println("random: " + random_index);
+                            //start_song(playerQueue[random_index][5]);
+                            if (rand_index == 0){
+                                start_song(randomlist.get(rand_index));
+                            }
+                            else {
+                                next();
+                            }
                         }
                         else {
                             if (Objects.equals(currentSong.getFilePath(), playerQueue[playerQueue.length-1][5])) {
